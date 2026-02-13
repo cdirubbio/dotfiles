@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# --- Usage / Help ---
+usage() {
+  cat <<EOF
+Usage: kubectl enter <node-name> [flags]
+
+Starts an interactive debug pod on the specified node using nicolaka/netshoot.
+
+Examples:
+  kubectl enter i-06568432d2e9e9ce8
+  kubectl enter i-06568432d2e9e9ce8 --image=ubuntu
+  kubectl enter my-node --profile=sysadmin
+
+Options:
+  -h, --help    Show this help message
+  --image       Override the default image (default: nicolaka/netshoot)
+  --profile     Override the debug profile (default: not set)
+
+Any extra flags are passed directly to 'kubectl debug'.
+EOF
+}
+
+# --- Argument parsing ---
+if [[ $# -lt 1 ]] || [[ "$1" == "-h" ]] || [[ "$1" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+NODE="$1"
+shift
+
+# Check if user already passed --image; if not, inject the default
+IMAGE_FLAG="--image=nicolaka/netshoot"
+for arg in "$@"; do
+  if [[ "$arg" == --image=* ]] || [[ "$arg" == "--image" ]]; then
+    IMAGE_FLAG=""
+    break
+  fi
+done
+
+# --- Run ---
+exec kubectl debug "node/${NODE}" \
+  ${IMAGE_FLAG:+"$IMAGE_FLAG"} \
+  -it --profile sysadmin \
+  "$@"

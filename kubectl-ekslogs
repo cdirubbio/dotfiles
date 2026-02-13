@@ -1,0 +1,50 @@
+#!/bin/bash
+
+set -e
+
+NODE_NAMES=("$@")
+
+if [ ${#NODE_NAMES[@]} -eq 0 ]; then
+    echo "Usage: kubectl ekslogs <node-name> [node-name2] [node-name3] ..."
+    exit 1
+fi
+
+for NODE_NAME in "${NODE_NAMES[@]}"; do
+    if ! kubectl get node "$NODE_NAME" >/dev/null 2>&1; then
+        echo "Error: Node '$NODE_NAME' not found"
+        exit 1
+    fi
+done
+
+for NODE_NAME in "${NODE_NAMES[@]}"; do
+    kubectl delete nodediagnostic $NODE_NAME >/dev/null 2>&1 || true
+done
+
+for NODE_NAME in "${NODE_NAMES[@]}"; do
+    echo "Starting ekslogs on node $NODE_NAME..."
+    
+    cat <<EOF | kubectl apply -f - >/dev/null 2>&1
+apiVersion: eks.amazonaws.com/v1alpha1
+kind: NodeDiagnostic
+metadata:
+  name: $NODE_NAME
+spec:
+  logCapture:
+    destination: node
+EOF
+done
+
+echo "Waiting for log collection to complete..."
+for NODE_NAME in "${NODE_NAMES[@]}"; do
+    kubectl wait --for=jsonpath='{.status.captureStatuses[0].state.completed}' nodediagnostic/$NODE_NAME --timeout=300s >/dev/null 2>&1
+done
+
+echo "Downloading log bundles..."
+for NODE_NAME in "${NODE_NAMES[@]}"; do
+    kubectl get --raw "/api/v1/nodes/$NODE_NAME/proxy/logs/support/$NODE_NAME-logs.tar.gz" > $NODE_NAME-logs.tar.gz
+    echo "Log bundle saved as $NODE_NAME-logs.tar.gz"
+done
+
+for NODE_NAME in "${NODE_NAMES[@]}"; do
+    kubectl delete nodediagnostic $NODE_NAME >/dev/null 2>&1
+done
